@@ -1,67 +1,46 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-import json
 
-# URL ของ API ที่ Render สร้างไว้
-UPLOAD_API_URL = "https://udontech-api.onrender.com/api/upload"  # เปลี่ยนตาม URL จริงที่คุณได้จาก Render
+UPLOAD_URL = "https://udontech-api.onrender.com/api/upload"
+NEWS_URL = "https://www.udontech.ac.th/web66/index.php/2015-08-18-07-06-23"
 
-# -------------------------------
-# ดึงข้อมูลจากเว็บไซต์วิทยาลัย
-def scrape_udontech():
-    url = "https://www.udontech.ac.th"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
+def fetch_news():
+    res = requests.get(NEWS_URL)
+    res.encoding = 'utf-8'
+    soup = BeautifulSoup(res.text, 'html.parser')
 
-    # ตัวอย่าง: ดึงหัวข้อข่าวล่าสุด
-    news_items = soup.select(".elementor-post__title > a")[:5]
-    news = [{"title": item.text.strip(), "url": item['href']} for item in news_items]
+    news_items = []
 
-    return {
-        "source": "udontech",
-        "timestamp": datetime.now().isoformat(),
-        "news": news
-    }
+    for article in soup.select('.item'):
+        title_tag = article.select_one('h2 a')
+        date_tag = article.select_one('.createdate')
 
-# -------------------------------
-# ดึงข้อมูลจากเพจ Facebook (public scraping แบบง่าย)
-def scrape_facebook():
-    fb_url = "https://www.facebook.com/share/16dUr6XDPs/"  # หรือหน้าเพจจริง
-    response = requests.get(fb_url)
-    soup = BeautifulSoup(response.content, 'html.parser')
+        if title_tag and date_tag:
+            title = title_tag.text.strip()
+            link = title_tag['href']
+            date_str = date_tag.text.strip()
+            try:
+                date_obj = datetime.strptime(date_str, "%d %B %Y")
+                timestamp = date_obj.strftime("%Y-%m-%d")
+            except ValueError:
+                timestamp = date_str  # ใช้รูปแบบเดิมถ้าแปลงไม่สำเร็จ
 
-    # หมายเหตุ: การดึงข้อมูลจาก Facebook โดยตรงมักจะโดนบล็อก ต้องใช้ Facebook API จริงจัง
-    # ดังนั้นที่นี่ใช้เป็น placeholder
-    posts = [{"text": "Facebook scraping requires API access.", "url": fb_url}]
-    
-    return {
-        "source": "facebook",
-        "timestamp": datetime.now().isoformat(),
-        "posts": posts
-    }
+            news_items.append({
+                "type": "ข่าวประชาสัมพันธ์",
+                "title": title,
+                "description": "ดูรายละเอียดเพิ่มเติมที่เว็บไซต์",
+                "link": link,
+                "timestamp": timestamp
+            })
 
-# -------------------------------
-# รวมข้อมูลและอัปโหลด
-def upload_data():
-    udontech_data = scrape_udontech()
-    facebook_data = scrape_facebook()
+    return news_items
 
-    combined_data = {
-        "college_data": udontech_data,
-        "facebook_data": facebook_data,
-        "collected_at": datetime.now().isoformat()
-    }
+def upload_news(news_list):
+    for item in news_list:
+        res = requests.post(UPLOAD_URL, json=item)
+        print(f"อัปโหลด {item['title']} → Status {res.status_code}")
 
-    # ส่งไปยัง API
-    try:
-        res = requests.post(UPLOAD_API_URL, json=combined_data)
-        if res.status_code == 200:
-            print("✅ อัปโหลดข้อมูลสำเร็จ")
-        else:
-            print("❌ อัปโหลดล้มเหลว:", res.text)
-    except Exception as e:
-        print("❌ เกิดข้อผิดพลาด:", str(e))
-
-# -------------------------------
 if __name__ == "__main__":
-    upload_data()
+    news = fetch_news()
+    upload_news(news)
